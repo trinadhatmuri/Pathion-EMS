@@ -26,7 +26,7 @@ This project uses a **Decoupled Service Architecture** to ensure fault tolerance
 
 ## 🛠️ Tech Stack
 
-* **Language:** Python 3.12+
+* **Language:** Python 3.10.12
 * **Protocol:** Modbus TCP (`pymodbus`)
 * **Memory Management:** POSIX Shared Memory, `struct` (Binary Packing)
 * **DevOps:** Modular Python structure, Virtual Environments
