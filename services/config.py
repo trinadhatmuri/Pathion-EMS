@@ -7,11 +7,11 @@
 
 # Network Settings
 MODBUS_IP = "127.0.0.1"
-MODBUS_PORT = 502
+MODBUS_PORT = 5020
 
 # Shared Memory Settings
 SHM_NAME = "/ems_shared_memory"
-SHM_SIZE = 4000
+SHM_SIZE = 1024
 
 # Safety Thresholds
 BATTERY_MIN = 0

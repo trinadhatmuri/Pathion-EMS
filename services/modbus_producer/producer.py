@@ -3,50 +3,39 @@ from pymodbus.client import ModbusTcpClient
 from config import MODBUS_IP, MODBUS_PORT, SHM_NAME, SHM_SIZE
 
 def run_producer():
-    # 1. Clean Slate Shared Memory
     try:
-        shm = posix_ipc.SharedMemory(SHM_NAME, posix_ipc.O_CREAT, size=SHM_SIZE)
-        map_file = mmap.mmap(shm.fd, shm.size)
-    except:
-        # If it exists, open it
         shm = posix_ipc.SharedMemory(SHM_NAME)
         map_file = mmap.mmap(shm.fd, shm.size)
+    except:
+        shm = posix_ipc.SharedMemory(SHM_NAME, posix_ipc.O_CREAT, size=SHM_SIZE)
+        map_file = mmap.mmap(shm.fd, shm.size)
 
-    # 2. Connect
-    client = ModbusTcpClient("127.0.0.1", port=502)
-
-    print("--- [PRODUCER] Connecting to Unit ID 1... ---")
+    client = ModbusTcpClient(MODBUS_IP, port=MODBUS_PORT)
+    print(f"--- [PRODUCER] Connecting to {MODBUS_IP}:{MODBUS_PORT} ---")
 
     while True:
-        if not client.connect():
-            print("PRODUCER: Connection Refused. Is Emulator Running?")
-            time.sleep(2)
-            continue
-
-        # 3. EXPLICIT READ: Address 0, Count 2, Slave Unit 1
-        # We try-catch to avoid crashing on errors
-        try:
-            # Read 3 registers to cover the offset
-            result = client.read_holding_registers(0, 3, slave=1)
+        if client.connect():
+            # Read 5 registers (0,1,2,3,4)
+            # Due to the offset, we will receive data from indices 1,2,3,4,5
+            result = client.read_holding_registers(0, 5, slave=1)
             
-            if hasattr(result, 'registers') and result.registers:
+            if hasattr(result, 'registers') and len(result.registers) >= 4:
                 regs = result.registers
-                # Logic: If index 0 is 0, the data is likely at index 1 due to the offset
-                batt = regs[0] if regs[0] > 0 else regs[1]
-                solar = regs[2] # Solar is now at index 2
+                
+                # MAGIC ALIGNMENT:
+                # regs[0] is what the Emulator calls Index 1 (Batt)
+                batt = regs[0]       
+                solar_kw = regs[1]   
+                load_kw = regs[2]    
+                solar_state = regs[3] 
                 
                 pulse = int(time.time()) % 65535
-                data = struct.pack('>7H', pulse, batt, solar, 0, 0, 0, 0)
+                data = struct.pack('>7H', pulse, batt, solar_state, load_kw, solar_kw, 0, 0)
                 map_file.seek(0)
                 map_file.write(data)
                 
-                print(f"PRODUCER SUCCESS: Read Batt {batt}% | Solar {solar}kW", end="\r")
-            else:
-                print(f"PRODUCER ERROR: Emulator connected but returned no data. Result: {result}")
-                
-        except Exception as e:
-            print(f"PRODUCER EXCEPTION: {e}")
-
+                print(f"PRODUCER: Batt {batt}% | Solar {solar_kw}kW | Load {load_kw}kW | Switch {solar_state}   ", end="\r")
+        
         time.sleep(1)
 
 if __name__ == "__main__":
