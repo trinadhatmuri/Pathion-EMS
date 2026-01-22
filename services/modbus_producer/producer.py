@@ -1,86 +1,53 @@
-import time
-import mmap
-import posix_ipc
-import struct
-import logging
-from logging.handlers import TimedRotatingFileHandler
+import time, mmap, posix_ipc, struct
 from pymodbus.client import ModbusTcpClient
-
 from config import MODBUS_IP, MODBUS_PORT, SHM_NAME, SHM_SIZE
 
-# 1. SETUP LOGGING
-log_file = "logs/producer.log"
-handler = TimedRotatingFileHandler(log_file, when="midnight", interval=1, backupCount=7)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[handler, logging.StreamHandler()]
-)
-logger = logging.getLogger("Producer")
-
-# 2. CONFIG
-SHM_NAME = SHM_NAME
-SHM_SIZE = SHM_SIZE
-MODBUS_IP = MODBUS_IP
-MODBUS_PORT = MODBUS_PORT
-
 def run_producer():
-    # Setup Shared Memory
+    # 1. Clean Slate Shared Memory
     try:
-        # If SHM exists from a previous crash, we try to open it; otherwise create it
-        try:
-            shm = posix_ipc.SharedMemory(SHM_NAME)
-        except posix_ipc.ExistentialError:
-            shm = posix_ipc.SharedMemory(SHM_NAME, posix_ipc.O_CREAT, size=SHM_SIZE)
-            
+        shm = posix_ipc.SharedMemory(SHM_NAME, posix_ipc.O_CREAT, size=SHM_SIZE)
         map_file = mmap.mmap(shm.fd, shm.size)
-        logger.info("--- [SUCCESS] Shared Memory Whiteboard is Open ---")
-    except Exception as e:
-        logger.error(f"Critical Shared Memory Error: {e}")
-        return
+    except:
+        # If it exists, open it
+        shm = posix_ipc.SharedMemory(SHM_NAME)
+        map_file = mmap.mmap(shm.fd, shm.size)
 
-    # Initialize Modbus Client with a 2-second timeout
-    client = ModbusTcpClient(MODBUS_IP, port=MODBUS_PORT, timeout=2)
+    # 2. Connect
+    client = ModbusTcpClient("127.0.0.1", port=502)
+
+    print("--- [PRODUCER] Connecting to Unit ID 1... ---")
 
     while True:
+        if not client.connect():
+            print("PRODUCER: Connection Refused. Is Emulator Running?")
+            time.sleep(2)
+            continue
+
+        # 3. EXPLICIT READ: Address 0, Count 2, Slave Unit 1
+        # We try-catch to avoid crashing on errors
         try:
-            # Check if we are connected; if not, try to connect
-            if not client.connect():
-                logger.warning(f"Unable to connect to Emulator at {MODBUS_IP}:{MODBUS_PORT}. Retrying...")
-                time.sleep(2)
-                continue
+            # Read 3 registers to cover the offset
+            result = client.read_holding_registers(0, 3, slave=1)
             
-            # If we reach here, we are connected. Let's read 100 registers.
-            # In Pymodbus 3.x, use slave=1 or simply the call below
-            result = client.read_holding_registers(0, 100, slave=1)
-            
-            if not result.isError():
-                # Create a Heartbeat (0-65535) to show the data is "Live"
-                heartbeat = int(time.time()) % 65535 
-                data_to_pack = [heartbeat] + result.registers
+            if hasattr(result, 'registers') and result.registers:
+                regs = result.registers
+                # Logic: If index 0 is 0, the data is likely at index 1 due to the offset
+                batt = regs[0] if regs[0] > 0 else regs[1]
+                solar = regs[2] # Solar is now at index 2
                 
-                # Pack: '>' Big Endian, 'H' Unsigned Short (2 bytes)
-                # We pack the heartbeat + the registers we read
-                fmt = f'>{len(data_to_pack)}H'
-                data_bytes = struct.pack(fmt, *data_to_pack)
-                
-                # Write to the Start of the Whiteboard (RAM)
+                pulse = int(time.time()) % 65535
+                data = struct.pack('>7H', pulse, batt, solar, 0, 0, 0, 0)
                 map_file.seek(0)
-                map_file.write(data_bytes)
+                map_file.write(data)
                 
-                # We don't want to spam the log, so we only log success once every 60 seconds
-                if heartbeat % 60 == 0:
-                    logger.info(f"Pipeline Healthy. Heartbeat: {heartbeat}")
+                print(f"PRODUCER SUCCESS: Read Batt {batt}% | Solar {solar}kW", end="\r")
             else:
-                logger.error(f"Modbus Protocol Error: {result}")
+                print(f"PRODUCER ERROR: Emulator connected but returned no data. Result: {result}")
                 
         except Exception as e:
-            logger.error(f"Unexpected Loop Error: {e}")
-            # If the network breaks, close the client so we can fresh-connect next loop
-            client.close()
-            time.sleep(2)
-            
-        time.sleep(1) # Frequency of "Sensing" is 1Hz (once per second)
+            print(f"PRODUCER EXCEPTION: {e}")
+
+        time.sleep(1)
 
 if __name__ == "__main__":
     run_producer()
