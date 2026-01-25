@@ -7,40 +7,36 @@ from datetime import datetime
 from pymodbus.client import ModbusTcpClient
 from config import MODBUS_IP, MODBUS_PORT, SHM_NAME
 
-# --- ALARM LOGGING SETUP ---
+# Import your new Brain
+from logic_agent.analysis import SystemAnalyzer
+
+# --- LOGGING SETUP ---
 LOG_DIR = "data/logs"
 EVENT_LOG_PATH = os.path.join(LOG_DIR, "events.log")
 
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
 def log_event(level, message):
-    """
-    Logs an alarm event to both the console and a permanent file.
-    Format: [TIMESTAMP] [LEVEL] Message
-    """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted_msg = f"[{timestamp}] [{level}] {message}"
-    
-    # 1. Print to Console (for you to see now)
     print(f"\n{formatted_msg}")
-    
-    # 2. Append to File (for your boss to see later)
     try:
         with open(EVENT_LOG_PATH, "a") as f:
             f.write(formatted_msg + "\n")
-    except Exception as e:
-        print(f"Error writing to event log: {e}")
+    except Exception:
+        pass
 
 def run_agent():
-    print("--- [AGENT] Smart Energy Management Online ---")
-    log_event("INFO", "Agent Process Started.")
+    print("--- [AGENT] Industrial Controller Online ---")
+    log_event("INFO", "System Initialized.")
     
+    # 1. Initialize the Brain
+    analyzer = SystemAnalyzer()
+    
+    # 2. Connect to Hardware
     try:
         shm = posix_ipc.SharedMemory(SHM_NAME)
         map_file = mmap.mmap(shm.fd, shm.size)
     except Exception as e:
-        log_event("CRITICAL", f"SHM Connection Failed: {e}")
+        log_event("CRITICAL", f"SHM Failure: {e}")
         return
 
     client = ModbusTcpClient(MODBUS_IP, port=MODBUS_PORT)
@@ -49,32 +45,32 @@ def run_agent():
         try:
             map_file.seek(0)
             data = struct.unpack('>7H', map_file.read(14))
-            # Unpack matches Producer: [Pulse, Batt, State, Load, SolarPower, ...]
             pulse, batt, solar_state, load, solar_kw = data[0], data[1], data[2], data[3], data[4]
             
-            # 1. SAFETY: Battery Full? Turn Switch (Reg 3) OFF
-            if batt >= 100 and solar_state == 1:
-                # Log the Alarm
-                log_event("WARNING", f"Battery Full ({batt}%). Safety Threshold Breached. Action: DISCONNECT Solar.")
+            # --- ASK THE BRAIN ---
+            result = analyzer.evaluate(batt, solar_state)
+            
+            # --- EXECUTE DECISION ---
+            if result:
+                log_event(result['severity'], result['reason'])
                 
-                if client.connect():
-                    client.write_register(3, 0, slave=1) # Write to Reg 3
-                    client.close()
+                if result['action'] == "DISCONNECT_SOLAR":
+                    if client.connect():
+                        client.write_register(3, 0, slave=1)
+                        client.close()
+                        
+                elif result['action'] == "RECONNECT_SOLAR":
+                    if client.connect():
+                        client.write_register(3, 1, slave=1)
+                        client.close()
 
-            # 2. RECOVERY: Battery Low? Turn Switch (Reg 3) ON
-            elif batt < 80 and solar_state == 0:
-                # Log the Recovery
-                log_event("INFO", f"Battery Recovery ({batt}%). Threshold Normal. Action: RECONNECT Solar.")
-                
-                if client.connect():
-                    client.write_register(3, 1, slave=1) # Write to Reg 3
-                    client.close()
-
-            status = "ENABLED" if solar_state == 1 else "DISABLED"
+            # Status Update
+            status = "ON" if solar_state == 1 else "OFF"
             print(f"AGENT: Batt {batt}% | Switch: {status} | Gen: {solar_kw}kW | Load {load}kW   ", end="\r")
 
         except Exception as e:
-            log_event("ERROR", f"Agent Loop Exception: {e}")
+            log_event("ERROR", f"Loop Exception: {e}")
+            
         time.sleep(1)
 
 if __name__ == "__main__":

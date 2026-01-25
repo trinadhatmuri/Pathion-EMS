@@ -24,3 +24,5 @@ WINDOW_SIZE = 10 # Check the last 10 seconds
 QUALITY_DANGER = 60 # Below 60% is Red
 QUALITY_WARNING = 90 # Below 90% is Yellow
 
+# Alarm Settings
+DEBOUNCE_LIMIT = 3 # Consecutive readings before action
