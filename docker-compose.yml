@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # 1. THE PLANT (Hardware Emulator)
+  emulator:
+    build: .
+    container_name: ems_emulator
+    working_dir: /app/services  # <--- MUST be the parent folder to find config.py
+    command: python -m hardware_emulator.emulator
+    ipc: host
+    ports:
+      - "5020:5020"
+    environment:
+      - MODBUS_PORT=5020
+      - MODBUS_IP=0.0.0.0
+
+  # 2. THE BRIDGE (Producer)
+  producer:
+    build: .
+    container_name: ems_producer
+    working_dir: /app/services
+    command: python -m modbus_producer.producer
+    ipc: host
+    depends_on:
+      - emulator
+    environment:
+      - MODBUS_IP=emulator
+      - MODBUS_PORT=5020
+
+  # 3. THE CONTROLLER (Agent)
+  agent:
+    build: .
+    container_name: ems_agent
+    working_dir: /app/services
+    command: python -m logic_agent.agent
+    ipc: host
+    volumes:
+      # Map local 'data/logs' to the CONTAINER'S 'services/data/logs'
+      - ./data/logs:/app/services/data/logs 
+    depends_on:
+      - producer
+    environment:
+      - MODBUS_IP=emulator
+      - MODBUS_PORT=5020
+
+  # 4. THE RECORDER (Logger)
+  logger:
+    build: .
+    container_name: ems_logger
+    working_dir: /app/services
+    command: python -m logd.logger # Or just "logd.logger" if logd is in services
+    ipc: host
+    volumes:
+      - ./data/logs:/app/services/data/logs
+    depends_on:
+      - producer
+
+  # 5. THE VIEWER (Dashboard)
+  dashboard:
+    build: .
+    container_name: ems_dashboard
+    working_dir: /app/services
+    command: streamlit run ui_dashboard.py --server.port=8501 --server.address=0.0.0.0
+    ipc: host
+    volumes:
+      - ./data/logs:/app/services/data/logs
+    ports:
+      - "8501:8501"
