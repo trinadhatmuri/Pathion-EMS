@@ -8,6 +8,7 @@ venv_emulator/
 services/logs/
 *.log
 services/logs/*.csv
+services/data/logs/*.csv
 
 # System files
 .DS_Store

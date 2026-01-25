@@ -83,6 +83,6 @@ while True:
     except Exception:
         pass
 
-    # Refresh every second
-    time.sleep(1)
+    # Refresh every two seconds
+    time.sleep(2)
     st.rerun()
