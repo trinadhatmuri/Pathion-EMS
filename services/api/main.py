@@ -5,9 +5,13 @@ import struct
 import os
 import sys
 from pydantic import BaseModel
+import pandas as pd
+import glob
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from config import SHM_NAME, SHM_SIZE
+
+LOG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../data/logs'))
 
 app = FastAPI(title="EMS Industrial API", version="1.0")
 
@@ -73,3 +77,30 @@ def send_command(cmd: ControlCommand):
         return {"status": "Command Sent", "action": cmd.action}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/history")
+def get_history():
+    """
+    Finds the most recent CSV log file and returns the data.
+    """
+    # 1. Find all CSV files in the log directory
+    csv_files = glob.glob(os.path.join(LOG_DIR, "*.csv"))
+    
+    if not csv_files:
+        return [] # No logs found yet
+
+    # 2. Sort files by name (which effectively sorts by date/time due to our naming convention)
+    # The last file in the list is the newest one.
+    latest_file = sorted(csv_files)[-1]
+    
+    try:
+        # 3. Read the CSV
+        df = pd.read_csv(latest_file)
+        
+        # 4. Return last 100 rows
+        df_recent = df.tail(100)
+        return df_recent.to_dict(orient="records")
+        
+    except Exception as e:
+        print(f"Error reading {latest_file}: {e}")
+        return []

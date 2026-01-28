@@ -65,6 +65,8 @@ services:
     ipc: host  # <--- CRITICAL: Needs to read Shared Memory
     ports:
       - "8000:8000"
+    volumes:  
+      - ./data/logs:/app/services/data/logs
     depends_on:
       - producer
 
