@@ -9,6 +9,8 @@ services/logs/
 *.log
 services/logs/*.csv
 services/data/logs/*.csv
+data/logs/*.csv
+data/logs/*.log
 
 # System files
 .DS_Store

@@ -55,7 +55,20 @@ services:
     depends_on:
       - producer
 
-  # 5. THE VIEWER (Dashboard)
+  # 5. THE GATEWAY (API)
+  api:
+    build: .
+    container_name: ems_api
+    working_dir: /app/services
+    # uvicorn runs the 'app' object inside 'api.main'
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ipc: host  # <--- CRITICAL: Needs to read Shared Memory
+    ports:
+      - "8000:8000"
+    depends_on:
+      - producer
+
+  # 6. THE VIEWER (Dashboard)
   dashboard:
     build: .
     container_name: ems_dashboard

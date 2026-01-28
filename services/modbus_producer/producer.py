@@ -30,7 +30,7 @@ def run_producer():
                 solar_state = regs[3] 
                 
                 pulse = int(time.time()) % 65535
-                data = struct.pack('>7H', pulse, batt, solar_state, load_kw, solar_kw, 0, 0)
+                data = struct.pack('>5H', pulse, batt, solar_state, load_kw, solar_kw)
                 map_file.seek(0)
                 map_file.write(data)
                 

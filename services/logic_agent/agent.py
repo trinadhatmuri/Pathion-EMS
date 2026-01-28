@@ -45,7 +45,29 @@ def run_agent():
         try:
             map_file.seek(0)
             data = struct.unpack('>7H', map_file.read(14))
-            pulse, batt, solar_state, load, solar_kw = data[0], data[1], data[2], data[3], data[4]
+            pulse, batt, solar_state, load, solar_kw, manual_command = data[0], data[1], data[2], data[3], data[4], data[5]
+            
+            if manual_command > 0:
+                log_event("WARNING", f"Received Manual Override Command: {manual_command}")
+                
+                # Execute immediately
+                if client.connect():
+                    if manual_command == 1: # FORCE ON
+                        client.write_register(3, 1, slave=1)
+                        log_event("INFO", "Manual Action: Solar CONNECTED")
+                    elif manual_command == 2: # FORCE OFF
+                        client.write_register(3, 0, slave=1)
+                        log_event("INFO", "Manual Action: Solar DISCONNECTED")
+                    client.close()
+                
+                # CRITICAL: Clear the mailbox so we don't execute it forever!
+                # Offset for Index 5 = 10 bytes (5 * 2 bytes)
+                map_file.seek(10)
+                map_file.write(struct.pack('>H', 0)) # Write a single 0 to Index 5
+                
+                # Skip the brain this cycle (Human overrules AI)
+                time.sleep(1)
+                continue
             
             # --- ASK THE BRAIN ---
             result = analyzer.evaluate(batt, solar_state)
